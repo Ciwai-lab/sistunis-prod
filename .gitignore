@@ -1,0 +1,4 @@
+# File: .gitignore
+# JANGAN PERNAH UPLOAD FILE INI KE GITHUB!
+.env
+node_modules/
