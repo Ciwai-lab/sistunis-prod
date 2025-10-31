@@ -22,7 +22,7 @@ app.get('/', async (req, res) => {
     // ... (Code cek koneksi yang berhasil tadi, biarkan saja) ...
     try {
         const client = await pool.connect();
-        const result = await client.query('SELECT NOW()');
+        const result = await client.query('SELECT * FROM users');
         client.release();
         const dbTime = result.rows[0].now;
         res.send(`Weew, WaaAI SISTUNIS Berhasil Running... ✅ KONEKSI RDS SUCCESS! Database Time: ${dbTime}`);
