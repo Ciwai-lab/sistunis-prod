@@ -35,26 +35,33 @@ app.get('/', async (req, res) => {
 // === 🟢 ENDPOINT BARU: AMBIL SEMUA DATA USER (CONTOH) ===
 // =======================================================
 app.get('/api/users', async (req, res) => {
+    let client;
     try {
-        const client = await pool.connect();
-        // PERHATIAN: GANTI 'nama_tabel_ente' JIKA SUDAH ADA TABEL LAIN!
-        // Kalau belum ada, kita pakai SELECT NOW() dulu untuk pastikan jalan.
-        const result = await client.query('SELECT NOW() AS current_time');
-        client.release();
+        client = await pool.connect();
 
-        // Mengirim data dalam format JSON (Standar API)
+        // GANTI INI DENGAN COMMAND SQL UNTUK MEMBUAT TABEL!
+        const result = await client.query(`
+            CREATE TABLE IF NOT EXISTS users (
+                id SERIAL PRIMARY KEY,
+                username VARCHAR(50) UNIQUE NOT NULL,
+                email VARCHAR(100) UNIQUE NOT NULL,
+                created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+            );
+            INSERT INTO users (username, email) VALUES ('ciwai_lab', 'ciwai@lab.com') ON CONFLICT (username) DO NOTHING;
+            SELECT * FROM users;
+        `);
+
         res.json({
-            status: "success",
-            message: "Data berhasil diambil dari RDS!",
+            status: 'success',
+            message: 'Data berhasil diambil dari RDS!',
             data: result.rows
         });
+
     } catch (err) {
-        console.error('Error fetching users:', err.stack);
-        res.status(500).json({
-            status: "error",
-            message: "Gagal mengambil data dari database.",
-            details: err.message
-        });
+        console.error('Database query error', err);
+        res.status(500).json({ status: 'error', message: 'Gagal query database', error: err.message });
+    } finally {
+        if (client) client.release();
     }
 });
 // =======================================================
