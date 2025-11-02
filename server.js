@@ -227,6 +227,49 @@ app.post('/api/posts', auth, async (req, res) => {
     }
 });
 // ===================================================
+
+// =========================================================
+// === 🟢 ENDPOINT BARU: MENGAMBIL SEMUA POSTINGAN (GET) ===
+// =========================================================
+app.get('/api/posts', async (req, res) => {
+    let client;
+    try {
+        client = await pool.connect();
+
+        // 1. Ambil data Posts, JOIN dengan tabel Users
+        // Kita tampilkan nama user (u.name) dan email
+        const result = await client.query(`
+            SELECT 
+                p.id, 
+                p.title, 
+                p.content, 
+                p.created_at,
+                p.user_id,
+                u.name AS user_name,  // Ambil nama user
+                u.email AS user_email // Ambil email user
+            FROM 
+                posts p
+            JOIN 
+                users u ON p.user_id = u.id
+            ORDER BY 
+                p.created_at DESC
+        `);
+
+        res.status(200).json({
+            status: 'success',
+            message: 'Semua postingan berhasil diambil!',
+            total: result.rowCount,
+            data: result.rows
+        });
+
+    } catch (err) {
+        console.error('Database GET posts error', err);
+        res.status(500).json({ status: 'error', message: 'Gagal mengambil data postingan', error: err.message });
+    } finally {
+        if (client) client.release();
+    }
+});
+// =========================================================
 app.listen(port, () => {
     console.log(`\n[WaaAI] Server SISTUNIS running di http://localhost:${port}\n`);
 });
