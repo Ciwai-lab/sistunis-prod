@@ -5,6 +5,7 @@ const { Pool } = require('pg');
 const dotenv = require('dotenv');
 const cors = require('cors');
 const bcrypt = require('bcryptjs');
+const jwt = require('jsonwebtoken');
 
 dotenv.config();
 
@@ -108,51 +109,66 @@ app.post('/api/users/register', async (req, res) => {
 // ================================================
 
 // ===========================================
-// === 🟢 ENDPOINT BARU: LOGIN USER (POST) ===
+// === 🟢 ENDPOINT FINAL: LOGIN USER (JWT) ===
 // ===========================================
 app.post('/api/users/login', async (req, res) => {
     let client;
     try {
-        // Ambil email dan password dari body
         const { email, password } = req.body;
 
-        // 🚨 VALIDASI DASAR
         if (!email || !password) {
             return res.status(400).json({ status: 'error', message: 'Email dan password wajib diisi, bro!' });
         }
 
         client = await pool.connect();
 
-        // 1. Cari user berdasarkan email
+        // 1. Cari user berdasarkan email & ambil password_hash
         const userResult = await client.query(
-            'SELECT id, name, email FROM users WHERE email = $1',
+            'SELECT id, name, email, password_hash FROM users WHERE email = $1',
             [email]
         );
 
         const user = userResult.rows[0];
 
-        // 2. Cek apakah user ada
-        if (!user) {
+        // Cek user & hash
+        if (!user || !user.password_hash) {
+            // Berikan pesan error generik agar tidak membocorkan informasi
             return res.status(401).json({ status: 'error', message: 'Email atau password salah, bro!' });
         }
 
-        // 3. ⚠️ VERIFIKASI PASSWORD SEDERHANA (Hanya untuk testing)
-        // Kita asumsikan password yang dikirim di body HARUS cocok
-        // dengan password di database. Karena belum ada kolom 'password',
-        // kita lewati verifikasi ini. Nantinya, WAJIB bandingkan dengan kolom 'password'
-        // dan library bcrypt.
+        // 2. VERIFIKASI PASSWORD DENGAN BCRYPT!
+        const isMatch = await bcrypt.compare(password, user.password_hash);
 
-        // Jika berhasil (asumsi password benar untuk sementara):
-        res.status(200).json({
-            status: 'success',
-            message: 'Login berhasil! Selamat datang!',
-            // Kirim data user (tanpa password)
-            data: {
+        if (!isMatch) {
+            return res.status(401).json({ status: 'error', message: 'Email atau password salah, bro!' });
+        }
+
+        // 3. GENERATE JSON WEB TOKEN (JWT)
+        // Payload token berisi data user yang tidak sensitif
+        const payload = {
+            user: {
                 id: user.id,
-                name: user.name,
-                email: user.email
+                name: user.name
             }
-        });
+        };
+
+        // Signature JWT: ENTE HARUS ganti 'SISTUNIS_SECRET_KEY' ini
+        // dengan string yang sangat panjang dan rahasia di file .env!
+        jwt.sign(
+            payload,
+            'SISTUNIS_SECRET_KEY', // ⚠️ GANTI INI KE process.env.JWT_SECRET!
+            { expiresIn: '1h' }, // Token kedaluwarsa dalam 1 jam
+            (err, token) => {
+                if (err) throw err;
+
+                // 4. KIRIM TOKEN KE FRONTEND!
+                res.status(200).json({
+                    status: 'success',
+                    message: 'Login berhasil! Token siap digunakan!',
+                    token // <-- Kunci akses frontend selanjutnya!
+                });
+            }
+        );
 
     } catch (err) {
         console.error('Database LOGIN error', err);
