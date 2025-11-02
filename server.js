@@ -250,7 +250,7 @@ app.get('/api/posts', async (req, res) => {
             FROM 
                 posts p
             JOIN 
-                users u ON p.user_id = u.id
+                users usr ON p.user_id = usr.id
             ORDER BY 
                 p.created_at DESC
         `);
