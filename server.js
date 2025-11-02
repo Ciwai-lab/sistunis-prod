@@ -31,26 +31,30 @@ app.get('/', async (req, res) => {
     }
 });
 
-// API: ambil semua users
+// =======================================================
+// === 🟢 ENDPOINT BARU: AMBIL SEMUA DATA USER (CONTOH) ===
+// =======================================================
 app.get('/api/users', async (req, res) => {
+    let client;
     try {
-        const client = await pool.connect();
-        // ambil kolom yang memang ada di DB
-        const result = await client.query('SELECT id, name, email, created_at FROM users ORDER BY id ASC LIMIT 100');
-        client.release();
+        client = await pool.connect();
+
+        // GANTI LOGIC INI! HANYA SELECT KARENA TABEL SUDAH DIBUAT!
+        const result = await client.query(`
+            SELECT id, username, email, created_at FROM users;
+        `);
 
         res.json({
-            status: "success",
-            message: "Data berhasil diambil dari RDS!",
+            status: 'success',
+            message: 'Data berhasil diambil dari RDS!',
             data: result.rows
         });
+
     } catch (err) {
-        console.error('Error fetching users:', err.stack);
-        res.status(500).json({
-            status: "error",
-            message: "Gagal query database",
-            error: err.message
-        });
+        console.error('Database query error', err);
+        res.status(500).json({ status: 'error', message: 'Gagal query database', error: err.message });
+    } finally {
+        if (client) client.release();
     }
 });
 
