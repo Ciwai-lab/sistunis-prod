@@ -3,10 +3,19 @@
 const express = require('express');
 const { Pool } = require('pg');
 const dotenv = require('dotenv');
-dotenv.config(); // Pastikan ini tetap ada
+const cors = require('cors');
+
+dotenv.config();
 
 const app = express();
 const port = 3000;
+
+// ===================================
+// === 🟢 MIDDLEWARE BARU (WAJIB) ===
+// ===================================
+app.use(express.json()); // Menerima data JSON dari request body
+app.use(cors());         // Mengizinkan akses dari domain luar (frontend)
+// ===================================
 
 // ... (Bagian Pool Konfigurasi tetap sama) ...
 const pool = new Pool({
@@ -53,9 +62,50 @@ app.get('/api/users', async (req, res) => {
         });
     }
 });
-
 // =======================================================
 
+// ================================================
+// === 🟢 ENDPOINT BARU: REGISTER USER (POST) ===
+// ================================================
+app.post('/api/users/register', async (req, res) => {
+    let client;
+    try {
+        // Ambil data dari body request (harus ada express.json())
+        const { username, email, password } = req.body;
+
+        // 🚨 VALIDASI DASAR: Pastikan data terkirim
+        if (!username || !email || !password) {
+            return res.status(400).json({ status: 'error', message: 'Username, email, dan password wajib diisi, bro!' });
+        }
+
+        client = await pool.connect();
+
+        // ⚠️ CATATAN: Karena kita belum pakai bcrypt, kita simpan password polos dulu
+        const result = await client.query(
+            'INSERT INTO users (username, email) VALUES ($1, $2) RETURNING id, username, email, created_at',
+            [username, email] // Data yang akan di-insert
+        );
+
+        res.status(201).json({
+            status: 'success',
+            message: 'Registrasi berhasil! User baru sudah masuk database!',
+            data: result.rows[0]
+        });
+
+    } catch (err) {
+        console.error('Database INSERT error', err);
+
+        // Handle error jika username/email sudah ada (UNIQUE constraint)
+        if (err.code === '23505') {
+            return res.status(409).json({ status: 'error', message: 'Username atau email sudah terdaftar, bro!' });
+        }
+
+        res.status(500).json({ status: 'error', message: 'Gagal saat registrasi', error: err.message });
+    } finally {
+        if (client) client.release();
+    }
+});
+// ================================================
 app.listen(port, () => {
     console.log(`\n[WaaAI] Server SISTUNIS running di http://localhost:${port}\n`);
 });
