@@ -707,6 +707,80 @@ app.get('/api/transactions/mine', auth, isWaliSantri, async (req, res) => {
 });
 // =======================================================
 
+// =======================================================
+// === 🟢 ENDPOINT BARU: ATTENDANCE (MULTIPLE ACTIVITY) ===
+// =======================================================
+app.post('/api/scanner/attendance', auth, isAdminTu, async (req, res) => {
+    let client;
+    try {
+        // Ambil activity_type dari body. Jika tidak ada, default-nya PONDOK (Check-In/Out)
+        const { qr_code_uid, activity_type = 'PONDOK' } = req.body;
+        const executed_by_user_id = req.user.id;
+        const today = new Date().toISOString().split('T')[0];
+
+        client = await pool.connect();
+        await client.query('BEGIN');
+
+        // 1. Ambil data Santri
+        const studentRes = await client.query('SELECT id, name FROM students WHERE qr_code_uid = $1', [qr_code_uid]);
+        if (studentRes.rows.length === 0) {
+            await client.query('ROLLBACK');
+            return res.status(404).json({ status: 'error', message: 'QR Code Santri tidak ditemukan, bro!' });
+        }
+        const student_id = studentRes.rows[0].id;
+        const student_name = studentRes.rows[0].name;
+
+        // 2. Cek apakah sudah ada record untuk TANGGAL DAN AKTIVITAS ini
+        const checkRes = await client.query(
+            'SELECT check_in_time, check_out_time FROM attendance WHERE student_id = $1 AND date = $2 AND activity_type = $3',
+            [student_id, today, activity_type]
+        );
+
+        if (activity_type === 'PONDOK') {
+            // =================================================
+            // LOGIC UTAMA: CHECK-IN / CHECK-OUT PONDOK
+            // =================================================
+            if (checkRes.rows.length === 0) {
+                // INSERT CHECK-IN
+                await client.query('INSERT INTO attendance (student_id, executed_by_user_id, check_in_time, date, activity_type) VALUES ($1, $2, NOW(), $3, $4)', [student_id, executed_by_user_id, today, activity_type]);
+                await client.query('COMMIT');
+                return res.status(201).json({ status: 'success', message: `Absen Masuk PONDOK SUKSES! Halo ${student_name}.`, data: { status: 'check_in' } });
+            } else if (!checkRes.rows[0].check_out_time) {
+                // UPDATE CHECK-OUT
+                await client.query('UPDATE attendance SET check_out_time = NOW() WHERE student_id = $1 AND date = $2 AND activity_type = $3', [student_id, today, activity_type]);
+                await client.query('COMMIT');
+                return res.status(200).json({ status: 'success', message: `Absen Pulang PONDOK SUKSES! Sampai jumpa ${student_name}.`, data: { status: 'check_out' } });
+            } else {
+                // SUDAH SELESAI PONDOK
+                await client.query('ROLLBACK');
+                return res.status(409).json({ status: 'warning', message: `Weew, ${student_name} sudah absen Masuk dan Pulang PONDOK hari ini, bro!` });
+            }
+        } else {
+            // =================================================
+            // LOGIC KEGIATAN NON-RUTIN (RIHLAH, SOSIAL, DLL.)
+            // =================================================
+            if (checkRes.rows.length === 0) {
+                // INSERT CHECK-IN (HANYA SEKALI)
+                await client.query('INSERT INTO attendance (student_id, executed_by_user_id, check_in_time, date, activity_type) VALUES ($1, $2, NOW(), $3, $4)', [student_id, executed_by_user_id, today, activity_type]);
+                await client.query('COMMIT');
+                return res.status(201).json({ status: 'success', message: `Absen Kegiatan ${activity_type} SUKSES! ${student_name} tercatat hadir.`, data: { status: 'check_in_activity' } });
+            } else {
+                // SUDAH ABSEN KEGIATAN
+                await client.query('ROLLBACK');
+                return res.status(409).json({ status: 'warning', message: `Weew, ${student_name} sudah tercatat hadir di kegiatan ${activity_type} hari ini, bro!` });
+            }
+        }
+
+    } catch (err) {
+        if (client) await client.query('ROLLBACK');
+        console.error('Error Absensi:', err.stack);
+        res.status(500).json({ status: 'error', message: 'Gagal saat memproses absensi.', error: err.message });
+    } finally {
+        if (client) client.release();
+    }
+});
+// =======================================================
+
 // Mulai server
 app.listen(port, () => {
     console.log(`\n[WaaAI] Server SISTUNIS running di http://localhost:${port}\n`);
