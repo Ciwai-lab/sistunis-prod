@@ -131,7 +131,8 @@ app.post('/api/users/login', async (req, res) => {
 
         // 1. Cari user berdasarkan email & ambil password_hash
         const userResult = await client.query(
-            'SELECT id, name, email, password_hash FROM users WHERE email = $1',
+            // 🟢 TAMBAH role_id DI SINI!
+            'SELECT id, name, email, password_hash, role_id FROM users WHERE email = $1',
             [email]
         );
 
