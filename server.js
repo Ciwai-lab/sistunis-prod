@@ -4,6 +4,7 @@ const express = require('express');
 const { Pool } = require('pg');
 const dotenv = require('dotenv');
 const cors = require('cors');
+const bcrypt = require('bcryptjs');
 
 dotenv.config();
 
@@ -70,42 +71,42 @@ app.get('/api/users', async (req, res) => {
 app.post('/api/users/register', async (req, res) => {
     let client;
     try {
-        // Ambil data dari body request (harus ada express.json())
         const { name, email, password } = req.body;
 
-        // 🚨 VALIDASI DASAR: Pastikan data terkirim
         if (!name || !email || !password) {
-            return res.status(400).json({ status: 'error', message: 'name, email, dan password wajib diisi, bro!' });
+            return res.status(400).json({ status: 'error', message: 'Name, email, dan password wajib diisi, bro!' });
         }
+
+        // 1. ENKRIPSI PASSWORD!
+        const salt = await bcrypt.genSalt(10); // Menghasilkan "garam"
+        const password_hash = await bcrypt.hash(password, salt); // Hashing password
 
         client = await pool.connect();
 
-        // ⚠️ CATATAN: Karena kita belum pakai bcrypt, kita simpan password polos dulu
+        // 2. INSERT HASH BARU KE KOLOM password_hash
         const result = await client.query(
-            'INSERT INTO users (name, email) VALUES ($1, $2) RETURNING id, name, email, created_at',
-            [name, email] // Data yang akan di-insert
+            'INSERT INTO users (name, email, password_hash) VALUES ($1, $2, $3) RETURNING id, name, email, created_at',
+            [name, email, password_hash] // <--- Tambahkan password_hash
         );
 
         res.status(201).json({
             status: 'success',
-            message: 'Registrasi berhasil! User baru sudah masuk database!',
+            message: 'Registrasi berhasil! Password sudah dienkripsi!',
             data: result.rows[0]
         });
 
     } catch (err) {
         console.error('Database INSERT error', err);
-
-        // Handle error jika username/email sudah ada (UNIQUE constraint)
         if (err.code === '23505') {
-            return res.status(409).json({ status: 'error', message: 'Username atau email sudah terdaftar, bro!' });
+            return res.status(409).json({ status: 'error', message: 'Email sudah terdaftar, bro!' });
         }
-
         res.status(500).json({ status: 'error', message: 'Gagal saat registrasi', error: err.message });
     } finally {
         if (client) client.release();
     }
 });
 // ================================================
+
 // ===========================================
 // === 🟢 ENDPOINT BARU: LOGIN USER (POST) ===
 // ===========================================
