@@ -106,6 +106,61 @@ app.post('/api/users/register', async (req, res) => {
     }
 });
 // ================================================
+// ===========================================
+// === 🟢 ENDPOINT BARU: LOGIN USER (POST) ===
+// ===========================================
+app.post('/api/users/login', async (req, res) => {
+    let client;
+    try {
+        // Ambil email dan password dari body
+        const { email, password } = req.body;
+
+        // 🚨 VALIDASI DASAR
+        if (!email || !password) {
+            return res.status(400).json({ status: 'error', message: 'Email dan password wajib diisi, bro!' });
+        }
+
+        client = await pool.connect();
+
+        // 1. Cari user berdasarkan email
+        const userResult = await client.query(
+            'SELECT id, name, email FROM users WHERE email = $1',
+            [email]
+        );
+
+        const user = userResult.rows[0];
+
+        // 2. Cek apakah user ada
+        if (!user) {
+            return res.status(401).json({ status: 'error', message: 'Email atau password salah, bro!' });
+        }
+
+        // 3. ⚠️ VERIFIKASI PASSWORD SEDERHANA (Hanya untuk testing)
+        // Kita asumsikan password yang dikirim di body HARUS cocok
+        // dengan password di database. Karena belum ada kolom 'password',
+        // kita lewati verifikasi ini. Nantinya, WAJIB bandingkan dengan kolom 'password'
+        // dan library bcrypt.
+
+        // Jika berhasil (asumsi password benar untuk sementara):
+        res.status(200).json({
+            status: 'success',
+            message: 'Login berhasil! Selamat datang!',
+            // Kirim data user (tanpa password)
+            data: {
+                id: user.id,
+                name: user.name,
+                email: user.email
+            }
+        });
+
+    } catch (err) {
+        console.error('Database LOGIN error', err);
+        res.status(500).json({ status: 'error', message: 'Gagal saat login', error: err.message });
+    } finally {
+        if (client) client.release();
+    }
+});
+// ===========================================
 app.listen(port, () => {
     console.log(`\n[WaaAI] Server SISTUNIS running di http://localhost:${port}\n`);
 });
