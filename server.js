@@ -708,66 +708,74 @@ app.get('/api/transactions/mine', auth, isWaliSantri, async (req, res) => {
 // =======================================================
 
 // =======================================================
-// === 🟢 ENDPOINT BARU: ATTENDANCE (MULTIPLE ACTIVITY) ===
+// === 🟢 ENDPOINT BARU: ATTENDANCE (FINAL LOGIC) ===
 // =======================================================
 app.post('/api/scanner/attendance', auth, isAdminTu, async (req, res) => {
     let client;
     try {
-        // Ambil activity_type dari body. Jika tidak ada, default-nya PONDOK (Check-In/Out)
-        const { qr_code_uid, activity_type = 'PONDOK' } = req.body;
+        // Menerima activity_id dari frontend. Jika tidak ada, default-nya ID 1 (PONDOK)
+        const { qr_code_uid, activity_id = 1 } = req.body;
         const executed_by_user_id = req.user.id;
         const today = new Date().toISOString().split('T')[0];
 
         client = await pool.connect();
         await client.query('BEGIN');
 
-        // 1. Ambil data Santri
-        const studentRes = await client.query('SELECT id, name FROM students WHERE qr_code_uid = $1', [qr_code_uid]);
-        if (studentRes.rows.length === 0) {
+        // 1. Ambil data Santri dan Aktivitas (JOIN)
+        const dataRes = await client.query(
+            `SELECT 
+                s.id AS student_id, s.name AS student_name, 
+                a.activity_code, a.activity_name, a.is_daily
+             FROM students s
+             JOIN activities a ON a.id = $2
+             WHERE s.qr_code_uid = $1`,
+            [qr_code_uid, activity_id]
+        );
+
+        if (dataRes.rows.length === 0) {
             await client.query('ROLLBACK');
-            return res.status(404).json({ status: 'error', message: 'QR Code Santri tidak ditemukan, bro!' });
+            return res.status(404).json({ status: 'error', message: 'QR Code Santri atau Activity ID tidak valid, bro!' });
         }
-        const student_id = studentRes.rows[0].id;
-        const student_name = studentRes.rows[0].name;
+        const { student_id, student_name, activity_code, activity_name, is_daily } = dataRes.rows[0];
 
         // 2. Cek apakah sudah ada record untuk TANGGAL DAN AKTIVITAS ini
         const checkRes = await client.query(
-            'SELECT check_in_time, check_out_time FROM attendance WHERE student_id = $1 AND date = $2 AND activity_type = $3',
-            [student_id, today, activity_type]
+            'SELECT check_in_time, check_out_time FROM attendance WHERE student_id = $1 AND date = $2 AND activity_id = $3',
+            [student_id, today, activity_id]
         );
 
-        if (activity_type === 'PONDOK') {
+        if (is_daily) {
             // =================================================
-            // LOGIC UTAMA: CHECK-IN / CHECK-OUT PONDOK
+            // LOGIC PONDOK (PONDOK/KEGIATAN HARIAN): CHECK-IN / CHECK-OUT
             // =================================================
             if (checkRes.rows.length === 0) {
                 // INSERT CHECK-IN
-                await client.query('INSERT INTO attendance (student_id, executed_by_user_id, check_in_time, date, activity_type) VALUES ($1, $2, NOW(), $3, $4)', [student_id, executed_by_user_id, today, activity_type]);
+                await client.query('INSERT INTO attendance (student_id, executed_by_user_id, check_in_time, date, activity_id) VALUES ($1, $2, NOW(), $3, $4)', [student_id, executed_by_user_id, today, activity_id]);
                 await client.query('COMMIT');
-                return res.status(201).json({ status: 'success', message: `Absen Masuk PONDOK SUKSES! Halo ${student_name}.`, data: { status: 'check_in' } });
+                return res.status(201).json({ status: 'success', message: `Absen Masuk ${activity_name} SUKSES! Halo ${student_name}.`, data: { status: 'check_in' } });
             } else if (!checkRes.rows[0].check_out_time) {
                 // UPDATE CHECK-OUT
-                await client.query('UPDATE attendance SET check_out_time = NOW() WHERE student_id = $1 AND date = $2 AND activity_type = $3', [student_id, today, activity_type]);
+                await client.query('UPDATE attendance SET check_out_time = NOW() WHERE student_id = $1 AND date = $2 AND activity_id = $3', [student_id, today, activity_id]);
                 await client.query('COMMIT');
-                return res.status(200).json({ status: 'success', message: `Absen Pulang PONDOK SUKSES! Sampai jumpa ${student_name}.`, data: { status: 'check_out' } });
+                return res.status(200).json({ status: 'success', message: `Absen Pulang ${activity_name} SUKSES! Sampai jumpa ${student_name}.`, data: { status: 'check_out' } });
             } else {
                 // SUDAH SELESAI PONDOK
                 await client.query('ROLLBACK');
-                return res.status(409).json({ status: 'warning', message: `Weew, ${student_name} sudah absen Masuk dan Pulang PONDOK hari ini, bro!` });
+                return res.status(409).json({ status: 'warning', message: `Weew, ${student_name} sudah absen Masuk dan Pulang ${activity_name} hari ini, bro!` });
             }
         } else {
             // =================================================
-            // LOGIC KEGIATAN NON-RUTIN (RIHLAH, SOSIAL, DLL.)
+            // LOGIC NON-RUTIN (RIHLAH, SOSIAL, DLL.): HANYA CHECK-IN
             // =================================================
             if (checkRes.rows.length === 0) {
                 // INSERT CHECK-IN (HANYA SEKALI)
-                await client.query('INSERT INTO attendance (student_id, executed_by_user_id, check_in_time, date, activity_type) VALUES ($1, $2, NOW(), $3, $4)', [student_id, executed_by_user_id, today, activity_type]);
+                await client.query('INSERT INTO attendance (student_id, executed_by_user_id, check_in_time, date, activity_id) VALUES ($1, $2, NOW(), $3, $4)', [student_id, executed_by_user_id, today, activity_id]);
                 await client.query('COMMIT');
-                return res.status(201).json({ status: 'success', message: `Absen Kegiatan ${activity_type} SUKSES! ${student_name} tercatat hadir.`, data: { status: 'check_in_activity' } });
+                return res.status(201).json({ status: 'success', message: `Absen Kegiatan ${activity_name} SUKSES! ${student_name} tercatat hadir.`, data: { status: 'check_in_activity' } });
             } else {
                 // SUDAH ABSEN KEGIATAN
                 await client.query('ROLLBACK');
-                return res.status(409).json({ status: 'warning', message: `Weew, ${student_name} sudah tercatat hadir di kegiatan ${activity_type} hari ini, bro!` });
+                return res.status(409).json({ status: 'warning', message: `Weew, ${student_name} sudah tercatat hadir di kegiatan ${activity_name} hari ini, bro!` });
             }
         }
 
@@ -775,6 +783,49 @@ app.post('/api/scanner/attendance', auth, isAdminTu, async (req, res) => {
         if (client) await client.query('ROLLBACK');
         console.error('Error Absensi:', err.stack);
         res.status(500).json({ status: 'error', message: 'Gagal saat memproses absensi.', error: err.message });
+    } finally {
+        if (client) client.release();
+    }
+});
+// =======================================================
+
+// =======================================================
+// === 🟢 ENDPOINT: CRUD MASTER ACTIVITIES ===
+// =======================================================
+
+// A. READ ALL Activities
+app.get('/api/activities', auth, isFinanceAuditor, async (req, res) => {
+    let client;
+    try {
+        client = await pool.connect();
+        const result = await client.query('SELECT id, activity_name, activity_code, is_daily FROM activities ORDER BY is_daily DESC, activity_name');
+        res.status(200).json({ status: 'success', message: 'Daftar aktivitas berhasil diambil.', data: result.rows });
+    } catch (err) {
+        console.error('Error READ ACTIVITIES:', err.stack);
+        res.status(500).json({ status: 'error', message: 'Gagal saat mengambil daftar aktivitas.', error: err.message });
+    } finally {
+        if (client) client.release();
+    }
+});
+
+// B. CREATE New Activity
+app.post('/api/activities', auth, isFinanceAuditor, async (req, res) => {
+    let client;
+    try {
+        const { activity_name, activity_code, is_daily = false } = req.body;
+        if (!activity_name || !activity_code) {
+            return res.status(400).json({ status: 'error', message: 'Nama dan Kode Aktivitas wajib diisi, bro!' });
+        }
+        client = await pool.connect();
+        const insertQuery = 'INSERT INTO activities (activity_name, activity_code, is_daily) VALUES ($1, $2, $3) RETURNING id, activity_name, activity_code, is_daily';
+        const result = await client.query(insertQuery, [activity_name, activity_code.toUpperCase(), is_daily]);
+        res.status(201).json({ status: 'success', message: 'Aktivitas baru berhasil ditambahkan!', data: result.rows[0] });
+    } catch (err) {
+        if (err.code === '23505') {
+            return res.status(409).json({ status: 'error', message: 'Nama atau Kode Aktivitas sudah ada, bro!' });
+        }
+        console.error('Error CREATE ACTIVITY:', err.stack);
+        res.status(500).json({ status: 'error', message: 'Gagal saat menambahkan aktivitas.', error: err.message });
     } finally {
         if (client) client.release();
     }
