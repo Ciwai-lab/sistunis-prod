@@ -643,6 +643,70 @@ app.get('/api/students/mine', auth, isWaliSantri, async (req, res) => {
 });
 // =======================================================
 
+// =======================================================
+// === 🟢 ENDPOINT: HISTORY TRANSAKSI KHUSUS WALI SANTRI ===
+// =======================================================
+app.get('/api/transactions/mine', auth, isWaliSantri, async (req, res) => {
+    let client;
+    try {
+        const wali_santri_id = req.user.id; // ID Wali Santri dari JWT (misalnya ID 7)
+        client = await pool.connect();
+
+        // STEP 1: Ambil SEMUA ID Santri yang terhubung ke Wali ini
+        const studentResult = await client.query(
+            'SELECT id, name FROM students WHERE wali_santri_id = $1',
+            [wali_santri_id]
+        );
+
+        if (studentResult.rows.length === 0) {
+            return res.status(404).json({
+                status: 'warning',
+                message: 'Weew, tidak ada data santri terhubung untuk mengambil history, bro.'
+            });
+        }
+
+        // Buat array dari ID Santri yang ditemukan (misalnya: [1, 5, 8])
+        const studentIds = studentResult.rows.map(row => row.id);
+
+        // Ubah array ID menjadi format string yang aman untuk SQL IN clause
+        // Contoh: $1, $2, $3...
+        const placeholders = studentIds.map((_, i) => `$${i + 1}`).join(', ');
+
+        // STEP 2: Ambil SEMUA Transaksi untuk ID Santri di atas
+        const historyQuery = `
+            SELECT 
+                t.transaction_time,
+                s.name AS student_name,
+                u.name AS executed_by_name,
+                t.transaction_type,
+                t.nominal,
+                t.balance_after,
+                t.notes
+            FROM transactions t
+            JOIN students s ON t.student_id = s.id
+            JOIN users u ON t.executed_by_user_id = u.id
+            WHERE t.student_id IN (${placeholders})  -- FILTER HANYA TRANSAKSI ANAK MEREKA
+            ORDER BY t.transaction_time DESC
+            LIMIT 50;
+        `;
+
+        const result = await client.query(historyQuery, studentIds);
+
+        res.status(200).json({
+            status: 'success',
+            message: 'History transaksi anak berhasil diambil.',
+            data: result.rows
+        });
+
+    } catch (err) {
+        console.error('Error GET transactions/mine:', err.stack);
+        res.status(500).json({ status: 'error', message: 'Gagal mengambil history transaksi.', error: err.message });
+    } finally {
+        if (client) client.release();
+    }
+});
+// =======================================================
+
 // Mulai server
 app.listen(port, () => {
     console.log(`\n[WaaAI] Server SISTUNIS running di http://localhost:${port}\n`);
