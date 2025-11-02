@@ -185,6 +185,48 @@ app.post('/api/users/login', async (req, res) => {
     }
 });
 // ===========================================
+
+// ===================================================
+// === 🟢 ENDPOINT BARU: MEMBUAT POSTINGAN (POST) ===
+// ===================================================
+app.post('/api/posts', auth, async (req, res) => {
+    let client;
+    try {
+        // req.user.id didapat dari middleware 'auth' (payload JWT)
+        const user_id = req.user.id;
+        const { title, content } = req.body;
+
+        // 🚨 VALIDASI DASAR
+        if (!title || !content) {
+            return res.status(400).json({ status: 'error', message: 'Judul dan konten wajib diisi, bro!' });
+        }
+
+        client = await pool.connect();
+
+        // 1. INSERT data ke tabel posts
+        const result = await client.query(
+            'INSERT INTO posts (user_id, title, content) VALUES ($1, $2, $3) RETURNING id, title, content, created_at',
+            [user_id, title, content]
+        );
+
+        res.status(201).json({
+            status: 'success',
+            message: `Postingan berhasil dibuat oleh User ID: ${user_id}!`,
+            data: result.rows[0]
+        });
+
+    } catch (err) {
+        console.error('Database POST error', err);
+        // Jika user_id tidak valid (walaupun harusnya tidak terjadi jika lolos auth)
+        if (err.code === '23503') {
+            return res.status(400).json({ status: 'error', message: 'User ID tidak valid, bro!' });
+        }
+        res.status(500).json({ status: 'error', message: 'Gagal saat membuat postingan', error: err.message });
+    } finally {
+        if (client) client.release();
+    }
+});
+// ===================================================
 app.listen(port, () => {
     console.log(`\n[WaaAI] Server SISTUNIS running di http://localhost:${port}\n`);
 });
