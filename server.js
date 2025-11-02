@@ -82,7 +82,7 @@ app.post('/api/users/register', async (req, res) => {
 
         // ⚠️ CATATAN: Karena kita belum pakai bcrypt, kita simpan password polos dulu
         const result = await client.query(
-            'INSERT INTO users (name, email) VALUES ($1, $2) RETURNING id, username, email, created_at',
+            'INSERT INTO users (name, email) VALUES ($1, $2) RETURNING id, name, email, created_at',
             [name, email] // Data yang akan di-insert
         );
 
