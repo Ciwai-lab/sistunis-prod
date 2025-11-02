@@ -17,53 +17,43 @@ const pool = new Pool({
     port: 5432,
 });
 
-// Endpoint 1: Root Path (Test Koneksi Database)
+// Root: Test koneksi DB
 app.get('/', async (req, res) => {
-    // ... (Code cek koneksi yang berhasil tadi, biarkan saja) ...
     try {
         const client = await pool.connect();
-        const result = await client.query('SELECT * FROM users');
+        const result = await client.query('SELECT NOW() AS current_time');
         client.release();
-        const dbTime = result.rows[0].now;
+
+        const dbTime = (result.rows[0] && result.rows[0].current_time) || 'unknown';
         res.send(`Weew, WaaAI SISTUNIS Berhasil Running... ✅ KONEKSI RDS SUCCESS! Database Time: ${dbTime}`);
     } catch (err) {
         res.status(500).send(`🚨 ERROR KONEKSI RDS: ${err.message}`);
     }
 });
 
-// =======================================================
-// === 🟢 ENDPOINT BARU: AMBIL SEMUA DATA USER (CONTOH) ===
-// =======================================================
+// API: ambil semua users
 app.get('/api/users', async (req, res) => {
-    let client;
     try {
-        client = await pool.connect();
-
-        // GANTI INI DENGAN COMMAND SQL UNTUK MEMBUAT TABEL!
-        const result = await client.query(`
-            CREATE TABLE IF NOT EXISTS users (
-                id SERIAL PRIMARY KEY,
-                username VARCHAR(50) UNIQUE NOT NULL,
-                email VARCHAR(100) UNIQUE NOT NULL,
-                created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
-            );
-            INSERT INTO users (username, email) VALUES ('ciwai_lab', 'ciwai@lab.com') ON CONFLICT (username) DO NOTHING;
-            SELECT * FROM users;
-        `);
+        const client = await pool.connect();
+        // ambil kolom yang memang ada di DB
+        const result = await client.query('SELECT id, name, email, created_at FROM users ORDER BY id ASC LIMIT 100');
+        client.release();
 
         res.json({
-            status: 'success',
-            message: 'Data berhasil diambil dari RDS!',
+            status: "success",
+            message: "Data berhasil diambil dari RDS!",
             data: result.rows
         });
-
     } catch (err) {
-        console.error('Database query error', err);
-        res.status(500).json({ status: 'error', message: 'Gagal query database', error: err.message });
-    } finally {
-        if (client) client.release();
+        console.error('Error fetching users:', err.stack);
+        res.status(500).json({
+            status: "error",
+            message: "Gagal query database",
+            error: err.message
+        });
     }
 });
+
 // =======================================================
 
 app.listen(port, () => {
