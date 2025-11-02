@@ -245,8 +245,8 @@ app.get('/api/posts', async (req, res) => {
                 p.content, 
                 p.created_at,
                 p.user_id,
-                usr.name AS author_name,  <-- GANTI: user_name -> author_name
-                usr.email AS author_email <-- GANTI: user_email -> author_email
+                usr.name AS author_name,
+                usr.email AS author_email
             FROM 
                 posts p
             JOIN 
