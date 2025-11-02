@@ -491,6 +491,103 @@ app.get('/api/transactions/history', auth, isFinanceAuditor, async (req, res) =>
     }
 });
 // =======================================================
+
+// =======================================================
+// === 🟢 ENDPOINT: CREATE CLASS ===
+// =======================================================
+app.post('/api/classes', auth, isFinanceAuditor, async (req, res) => {
+    let client;
+    try {
+        const { class_name, level, description } = req.body;
+
+        if (!class_name || !level) {
+            return res.status(400).json({ status: 'error', message: 'Nama Kelas dan Jenjang wajib diisi, bro!' });
+        }
+
+        client = await pool.connect();
+
+        const insertQuery = `
+            INSERT INTO classes (class_name, level, description)
+            VALUES ($1, $2, $3)
+            RETURNING id, class_name, level;
+        `;
+
+        const result = await client.query(insertQuery, [class_name, level, description]);
+
+        res.status(201).json({
+            status: 'success',
+            message: 'Kelas baru berhasil ditambahkan!',
+            data: result.rows[0]
+        });
+
+    } catch (err) {
+        if (err.code === '23505') { // Error code for unique violation
+            return res.status(409).json({ status: 'error', message: 'Nama Kelas sudah ada, bro!' });
+        }
+        console.error('Error CREATE CLASS:', err.stack);
+        res.status(500).json({ status: 'error', message: 'Gagal saat menambahkan kelas.', error: err.message });
+    } finally {
+        if (client) client.release();
+    }
+});
+// =======================================================
+
+// =======================================================
+// === 🟢 ENDPOINT: READ ALL CLASSES ===
+// =======================================================
+app.get('/api/classes', auth, isFinanceAuditor, async (req, res) => {
+    let client;
+    try {
+        client = await pool.connect();
+
+        const result = await client.query('SELECT id, class_name, level, description FROM classes ORDER BY level, class_name');
+
+        res.status(200).json({
+            status: 'success',
+            message: 'Daftar kelas berhasil diambil.',
+            data: result.rows
+        });
+
+    } catch (err) {
+        console.error('Error READ ALL CLASSES:', err.stack);
+        res.status(500).json({ status: 'error', message: 'Gagal saat mengambil daftar kelas.', error: err.message });
+    } finally {
+        if (client) client.release();
+    }
+});
+// =======================================================
+
+// =======================================================
+// === 🟢 ENDPOINT: READ SINGLE CLASS ===
+// =======================================================
+app.get('/api/classes/:id', auth, isFinanceAuditor, async (req, res) => {
+    let client;
+    try {
+        const { id } = req.params;
+
+        client = await pool.connect();
+
+        const result = await client.query('SELECT id, class_name, level, description FROM classes WHERE id = $1', [id]);
+
+        if (result.rows.length === 0) {
+            return res.status(404).json({ status: 'error', message: 'Kelas tidak ditemukan, bro!' });
+        }
+
+        res.status(200).json({
+            status: 'success',
+            message: 'Data kelas berhasil diambil.',
+            data: result.rows[0]
+        });
+
+    } catch (err) {
+        console.error('Error READ SINGLE CLASS:', err.stack);
+        res.status(500).json({ status: 'error', message: 'Gagal saat mengambil data kelas.', error: err.message });
+    } finally {
+        if (client) client.release();
+    }
+});
+// =======================================================
+// Mulai server
 app.listen(port, () => {
     console.log(`\n[WaaAI] Server SISTUNIS running di http://localhost:${port}\n`);
 });
