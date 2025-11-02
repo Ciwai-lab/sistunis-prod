@@ -71,10 +71,10 @@ app.post('/api/users/register', async (req, res) => {
     let client;
     try {
         // Ambil data dari body request (harus ada express.json())
-        const { username, email, password } = req.body;
+        const { name, email, password } = req.body;
 
         // 🚨 VALIDASI DASAR: Pastikan data terkirim
-        if (!username || !email || !password) {
+        if (!name || !email || !password) {
             return res.status(400).json({ status: 'error', message: 'Username, email, dan password wajib diisi, bro!' });
         }
 
@@ -83,7 +83,7 @@ app.post('/api/users/register', async (req, res) => {
         // ⚠️ CATATAN: Karena kita belum pakai bcrypt, kita simpan password polos dulu
         const result = await client.query(
             'INSERT INTO users (username, email) VALUES ($1, $2) RETURNING id, username, email, created_at',
-            [username, email] // Data yang akan di-insert
+            [name, email] // Data yang akan di-insert
         );
 
         res.status(201).json({
