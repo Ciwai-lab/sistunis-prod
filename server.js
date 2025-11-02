@@ -439,6 +439,58 @@ app.post('/api/scanner/withdraw', auth, isAdminTu, async (req, res) => {
     }
 });
 // ==========================================================
+
+// Middleware untuk Mudiir (ID 2) atau Admin TU (ID 3)
+const isFinanceAuditor = (req, res, next) => {
+    // req.user.role_id: 2 (Mudiir) atau 3 (Admin TU)
+    if (req.user && (req.user.role_id === 2 || req.user.role_id === 3)) {
+        next();
+    } else {
+        res.status(403).json({ status: "error", message: "Akses Ditolak. Ente bukan Mudiir/Admin TU, bro!" });
+    }
+};
+
+// =======================================================
+// === 🟢 ENDPOINT BARU: HISTORY TRANSAKSI (AUDIT) ===
+// =======================================================
+app.get('/api/transactions/history', auth, isFinanceAuditor, async (req, res) => {
+    let client;
+    try {
+        client = await pool.connect();
+
+        // Query untuk mengambil data gabungan dari 3 tabel
+        const historyQuery = `
+            SELECT 
+                t.transaction_time,
+                s.name AS student_name,
+                u.name AS executed_by_name,
+                t.transaction_type,
+                t.nominal,
+                t.balance_after,
+                t.notes
+            FROM transactions t
+            JOIN students s ON t.student_id = s.id
+            JOIN users u ON t.executed_by_user_id = u.id
+            ORDER BY t.transaction_time DESC
+            LIMIT 20;
+        `;
+
+        const result = await client.query(historyQuery);
+
+        res.status(200).json({
+            status: 'success',
+            message: 'Data history transaksi keuangan berhasil diambil.',
+            data: result.rows
+        });
+
+    } catch (err) {
+        console.error('Error mengambil history:', err.stack);
+        res.status(500).json({ status: 'error', message: 'Gagal saat mengambil data history.', error: err.message });
+    } finally {
+        if (client) client.release();
+    }
+});
+// =======================================================
 app.listen(port, () => {
     console.log(`\n[WaaAI] Server SISTUNIS running di http://localhost:${port}\n`);
 });
