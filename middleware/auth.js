@@ -2,9 +2,6 @@
 
 const jwt = require('jsonwebtoken');
 
-require('dotenv').config({ path: '../.env' });
-const JWT_SECRET = process.env.JWT_SECRET;
-
 module.exports = function (req, res, next) {
     // 1. Ambil token dari header
     // Token biasanya dikirim sebagai: Authorization: Bearer <token>
@@ -20,8 +17,7 @@ module.exports = function (req, res, next) {
     // 2. Verifikasi Token
     try {
         // Memverifikasi token dengan Secret Key
-        const decoded = jwt.verify(token, JWT_SECRET);
-
+        const decoded = jwt.verify(token, process.env.JWT_SECRET);
         // Menambahkan data user dari token ke objek request (req.user)
         // Agar bisa diakses oleh endpoint selanjutnya
         req.user = decoded.user;
