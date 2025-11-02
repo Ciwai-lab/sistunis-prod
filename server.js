@@ -75,14 +75,14 @@ app.post('/api/users/register', async (req, res) => {
 
         // 🚨 VALIDASI DASAR: Pastikan data terkirim
         if (!name || !email || !password) {
-            return res.status(400).json({ status: 'error', message: 'Username, email, dan password wajib diisi, bro!' });
+            return res.status(400).json({ status: 'error', message: 'name, email, dan password wajib diisi, bro!' });
         }
 
         client = await pool.connect();
 
         // ⚠️ CATATAN: Karena kita belum pakai bcrypt, kita simpan password polos dulu
         const result = await client.query(
-            'INSERT INTO users (username, email) VALUES ($1, $2) RETURNING id, username, email, created_at',
+            'INSERT INTO users (name, email) VALUES ($1, $2) RETURNING id, username, email, created_at',
             [name, email] // Data yang akan di-insert
         );
 
