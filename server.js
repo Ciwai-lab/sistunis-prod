@@ -587,6 +587,62 @@ app.get('/api/classes/:id', auth, isFinanceAuditor, async (req, res) => {
     }
 });
 // =======================================================
+
+const IS_WALI_SANTRI_ROLE_ID = 5;
+
+const isWaliSantri = (req, res, next) => {
+    // Memastikan user yang mengakses punya role_id = 5
+    if (req.user && req.user.role_id === IS_WALI_SANTRI_ROLE_ID) {
+        next(); // Lanjut jika Role-nya benar
+    } else {
+        res.status(403).json({
+            status: "error",
+            message: "Akses Ditolak. Weew, Ente bukan Wali Santri, bro!"
+        });
+    }
+};
+// =======================================================
+// =======================================================
+// === 🟢 ENDPOINT: GET SANTRI BY WALI SANTRI ID ===
+// =======================================================
+// Hanya bisa diakses oleh Wali Santri (ID 5)
+app.get('/api/students/mine', auth, isWaliSantri, async (req, res) => {
+    let client;
+    try {
+        // ID user yang login (ID Wali Santri) diambil dari payload JWT
+        const wali_santri_id = req.user.id;
+
+        client = await pool.connect();
+
+        // 1. Cari Santri yang wali_santri_id-nya sesuai dengan ID user yang login
+        const result = await client.query(
+            'SELECT id, name, nis, saldo_uang_saku, qr_code_uid FROM students WHERE wali_santri_id = $1',
+            [wali_santri_id]
+        );
+
+        if (result.rows.length === 0) {
+            return res.status(404).json({
+                status: 'warning',
+                message: 'Tidak ada data santri yang terhubung dengan akun ini, bro.'
+            });
+        }
+
+        // 2. Response: Data Santri + Saldo
+        res.status(200).json({
+            status: 'success',
+            message: `Berhasil mengambil ${result.rows.length} data santri anak ente.`,
+            data: result.rows
+        });
+
+    } catch (err) {
+        console.error('Error GET students/mine:', err.stack);
+        res.status(500).json({ status: 'error', message: 'Gagal saat memproses permintaan data santri', error: err.message });
+    } finally {
+        if (client) client.release();
+    }
+});
+// =======================================================
+
 // Mulai server
 app.listen(port, () => {
     console.log(`\n[WaaAI] Server SISTUNIS running di http://localhost:${port}\n`);
