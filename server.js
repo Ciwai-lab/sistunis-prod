@@ -155,7 +155,9 @@ app.post('/api/users/login', async (req, res) => {
         const payload = {
             user: {
                 id: user.id,
-                name: user.name
+                name: user.name,
+                // 🟢 TAMBAH ROLE_ID DI PAYLOAD UNTUK CHECK HAK AKSES
+                role_id: user.role_id
             }
         };
 
@@ -270,6 +272,172 @@ app.get('/api/posts', async (req, res) => {
     }
 });
 // =========================================================
+
+// ===============================================
+// === 🟢 CEK ROLE: ADMIN TU (role_id = 3) ===
+// ===============================================
+
+const ADMIN_TU_ROLE_ID = 3;
+
+const isAdminTu = (req, res, next) => {
+    // req.user adalah data dari payload JWT (setelah lolos middleware 'auth')
+    if (req.user && req.user.role_id === ADMIN_TU_ROLE_ID) {
+        next(); // Lanjut ke fungsi handler (berhak akses)
+    } else {
+        // Jika user tidak punya role_id atau role_id-nya bukan Admin TU
+        return res.status(403).json({
+            status: "error",
+            message: "Weew, Akses Ditolak. Ente tidak punya izin Admin TU, bro!"
+        });
+    }
+};
+
+// =======================================================
+// === 🟢 ENDPOINT BARU: SCAN QR CODE SANTRI (GET DATA) ===
+// =======================================================
+// Diproteksi oleh 'auth' (valid JWT) dan 'isAdminTu' (Role Check)
+app.post('/api/scanner/scan', auth, isAdminTu, async (req, res) => {
+    let client;
+    try {
+        const { qr_code_uid } = req.body;
+        const executed_by_user_id = req.user.id; // Admin TU yang sedang bertugas
+
+        if (!qr_code_uid) {
+            return res.status(400).json({ status: 'error', message: 'QR Code wajib diisi, bro!' });
+        }
+
+        client = await pool.connect();
+
+        // 1. Cari Santri berdasarkan QR Code UID
+        const result = await client.query(
+            'SELECT id, name, nis, saldo_uang_saku, wali_santri_id FROM students WHERE qr_code_uid = $1',
+            [qr_code_uid]
+        );
+
+        const student = result.rows[0];
+
+        if (!student) {
+            return res.status(404).json({ status: 'error', message: 'Santri dengan QR Code tersebut tidak ditemukan, bro.' });
+        }
+
+        // 2. Response: Data Santri + Saldo
+        res.status(200).json({
+            status: 'success',
+            message: `Halo, ${student.name}! Admin ID: ${executed_by_user_id} siap bertransaksi.`,
+            data: {
+                student_id: student.id,
+                name: student.name,
+                nis: student.nis,
+                current_balance: student.saldo_uang_saku,
+                // Kita tampilkan opsi pengambilan berdasarkan Saldo
+                allowance_options: [7000, 10000, 15000, 20000].filter(n => n <= parseFloat(student.saldo_uang_saku))
+            }
+        });
+
+    } catch (err) {
+        console.error('Error Scan QR:', err.stack);
+        res.status(500).json({ status: 'error', message: 'Gagal saat memproses scan QR', error: err.message });
+    } finally {
+        if (client) client.release();
+    }
+});
+// =======================================================
+
+// ==========================================================
+// === 🟢 ENDPOINT BARU: AMBIL UANG SAKU HARIAN (WITHDRAW) ===
+// ==========================================================
+// Diproteksi oleh 'auth' (valid JWT) dan 'isAdminTu' (Role Check)
+app.post('/api/scanner/withdraw', auth, isAdminTu, async (req, res) => {
+    let client;
+    try {
+        const { qr_code_uid, nominal } = req.body;
+        // ID Admin TU yang sedang bertugas, diambil dari payload JWT
+        const executed_by_user_id = req.user.id;
+        const parsedNominal = parseFloat(nominal);
+
+        // 🚨 Validasi Input
+        if (!qr_code_uid || isNaN(parsedNominal) || parsedNominal <= 0) {
+            return res.status(400).json({ status: 'error', message: 'QR Code dan Nominal yang valid wajib diisi, bro!' });
+        }
+
+        // Cek apakah nominal sesuai aturan harian (Rp7.000, Rp10.000, dst.)
+        const validNominals = [7000, 10000, 15000, 20000];
+        if (!validNominals.includes(parsedNominal)) {
+            return res.status(400).json({ status: 'error', message: 'Weew, Nominal tidak valid. Harus 7000, 10000, 15000, atau 20000.' });
+        }
+
+        client = await pool.connect();
+
+        // 🔑 START TRANSACTION BLOCK (Penting untuk Keuangan!)
+        await client.query('BEGIN');
+
+        // 1. Ambil Santri dan Saldo Saat Ini
+        const studentResult = await client.query(
+            'SELECT id, name, saldo_uang_saku FROM students WHERE qr_code_uid = $1 FOR UPDATE', // Kunci row Santri agar tidak diubah proses lain (Penting!)
+            [qr_code_uid]
+        );
+
+        const student = studentResult.rows[0];
+
+        if (!student) {
+            await client.query('ROLLBACK'); // Batalkan jika Santri tidak ditemukan
+            return res.status(404).json({ status: 'error', message: 'Santri dengan QR Code tersebut tidak ditemukan, bro.' });
+        }
+
+        const balanceBefore = parseFloat(student.saldo_uang_saku);
+
+        // 2. Cek Saldo
+        if (balanceBefore < parsedNominal) {
+            await client.query('ROLLBACK'); // Batalkan jika saldo kurang
+            return res.status(400).json({
+                status: 'error',
+                message: `Weew, Saldo ${student.name} tidak cukup (${balanceBefore} kurang dari ${parsedNominal}).`
+            });
+        }
+
+        // 3. Hitung Saldo Baru & Update Saldo Santri
+        const balanceAfter = balanceBefore - parsedNominal;
+
+        await client.query(
+            'UPDATE students SET saldo_uang_saku = $1 WHERE id = $2',
+            [balanceAfter, student.id]
+        );
+
+        // 4. Catat Transaksi (Audit Trail!)
+        await client.query(
+            `INSERT INTO transactions 
+            (student_id, executed_by_user_id, transaction_type, nominal, balance_before, balance_after, is_daily_allowance, notes) 
+            VALUES ($1, $2, $3, $4, $5, $6, TRUE, 'Pengambilan uang saku harian')`,
+            [student.id, executed_by_user_id, 'cash_withdrawal', parsedNominal, balanceBefore, balanceAfter]
+        );
+
+        // 🔑 END TRANSACTION BLOCK
+        await client.query('COMMIT');
+
+        res.status(200).json({
+            status: 'success',
+            message: `Weew, Transaksi SUKSES! ${student.name} mengambil ${parsedNominal}.`,
+            data: {
+                student_id: student.id,
+                name: student.name,
+                nominal_taken: parsedNominal,
+                balance_before: balanceBefore,
+                balance_after: balanceAfter // Saldo yang baru
+            }
+        });
+
+    } catch (err) {
+        // Jika terjadi error di tengah proses, lakukan rollback
+        if (client) {
+            await client.query('ROLLBACK');
+        }
+        console.error('Database WITHDRAW error:', err.stack);
+        res.status(500).json({ status: 'error', message: '🚨 ERROR FATAL: Transaksi gagal di sistem!', error: err.message });
+    } finally {
+        if (client) client.release();
+    }
+});
+// ==========================================================
 app.listen(port, () => {
     console.log(`\n[WaaAI] Server SISTUNIS running di http://localhost:${port}\n`);
 });
