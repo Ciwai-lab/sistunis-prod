@@ -6,6 +6,7 @@ const dotenv = require('dotenv');
 const cors = require('cors');
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
+const auth = require('./middleware/auth');
 
 dotenv.config();
 
@@ -42,17 +43,23 @@ app.get('/', async (req, res) => {
     }
 });
 
-// API: ambil semua users
-app.get('/api/users', async (req, res) => {
+// =======================================================
+// === 🟢 PROTEKSI API: AMBIL SEMUA DATA USER (CONTOH) ===
+// =======================================================
+// PASANG 'auth' SEBAGAI ARGUMEN KEDUA!
+app.get('/api/users', auth, async (req, res) => {
     try {
         const client = await pool.connect();
-        // ambil kolom yang memang ada di DB
+
+        // Di sini, kita tahu req.user sudah ada karena lolos middleware!
+        console.log(`User ID yang mengakses: ${req.user.id}`);
+
         const result = await client.query('SELECT id, name, email, created_at FROM users ORDER BY id ASC LIMIT 100');
         client.release();
 
         res.json({
             status: "success",
-            message: "Data berhasil diambil dari RDS!",
+            message: `Halo, ${req.user.name}! Data berhasil diambil dari RDS!`, // Pesan Personal
             data: result.rows
         });
     } catch (err) {
@@ -156,7 +163,7 @@ app.post('/api/users/login', async (req, res) => {
         // dengan string yang sangat panjang dan rahasia di file .env!
         jwt.sign(
             payload,
-            'SISTUNIS_SECRET_KEY', // ⚠️ GANTI INI KE process.env.JWT_SECRET!
+            process.env.JWT_SECRET,
             { expiresIn: '1h' }, // Token kedaluwarsa dalam 1 jam
             (err, token) => {
                 if (err) throw err;
